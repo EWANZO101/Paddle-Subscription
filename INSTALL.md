@@ -6,13 +6,13 @@ If you've already installed Paddle-Checkout, that shared page/route/method are a
 
 ## Quick install
 
-Run this from your WemX installation root (the directory containing `artisan`):
+Extract this zip (if your platform didn't already extract it for you into `extensions/Gateways/PaddleSubscription/`), then from your WemX installation root (the directory containing `artisan`), run:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/EWANZO101/Paddle-Subscription/main/install.sh | bash
+bash /path/to/PaddleSubscription/install.sh
 ```
 
-It does steps 1–4 below for you — backing up `routes/web.php` and `PaymentsController.php` before editing them, and safe to re-run (it replaces its own previous insertion rather than leaving a stale copy, and upgrades a Paddle-Checkout-only install cleanly too). You still need step 5 (configuring the gateway in WemX admin).
+It does steps 1–4 below for you — backing up `routes/web.php` and `PaymentsController.php` before editing them, and safe to re-run (it replaces its own previous insertion rather than leaving a stale copy, and upgrades a Paddle-Checkout-only install cleanly too). It works entirely from the files already in this zip — no internet access needed beyond whatever downloaded the zip itself. You still need step 5 (configuring the gateway in WemX admin).
 
 Prefer to do it by hand, or want to see exactly what the script changes first? Read [`install.sh`](install.sh) or follow the manual steps below.
 
@@ -20,7 +20,7 @@ Prefer to do it by hand, or want to see exactly what the script changes first? R
 
 ### 1. Add the extension
 
-Extract this repo so you end up with:
+Extract this zip so you end up with:
 
 ```
 extensions/Gateways/PaddleSubscription/Gateway.php
@@ -28,7 +28,7 @@ extensions/Gateways/PaddleSubscription/Gateway.php
 
 ### 2. Add the checkout view (skip if Paddle-Checkout is already installed)
 
-Copy `resources/paddle-checkout.blade.php` from this repo to:
+Copy `resources/paddle-checkout.blade.php` from this zip to:
 
 ```
 resources/client_area/default/payments/paddle-checkout.blade.php

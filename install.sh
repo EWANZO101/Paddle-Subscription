@@ -1,29 +1,44 @@
 #!/usr/bin/env bash
 #
-# Paddle Subscription for WemX — one-line installer
+# Paddle Subscription for WemX — installer
 #
-#   curl -fsSL https://raw.githubusercontent.com/EWANZO101/Paddle-Subscription/main/install.sh | bash
+# Extract this zip, then run this script from your WemX installation root
+# (the directory containing `artisan`), pointing at wherever you extracted it:
 #
-# Run this from your WemX installation root (the directory containing `artisan`).
-# Safe to re-run any time, including to update an existing install to the latest
-# version — the route and controller method are replaced in place (not just left
-# alone if already present), and any file this script edits is backed up first.
+#   bash /path/to/PaddleSubscription/install.sh
 #
-# Note: this installs the same shared Paddle.js checkout page, route, and
-# controller method that EWANZO101/Paddle-Checkout also installs (Paddle
-# Billing's checkout overlay is identical for one-time and recurring prices).
-# Installing both gateways is fine — they use the same BEGIN/END markers, so
-# whichever you install second just confirms the shared pieces are already
-# in place rather than duplicating them.
+# Safe to re-run any time, including to update an existing install to the
+# latest version — the route and controller method are replaced in place
+# (not just left alone if already present), and any file this script edits
+# is backed up first.
+#
+# This installs the same shared Paddle.js checkout page, route, and
+# controller method that the Paddle-Checkout gateway also installs (Paddle
+# Billing's checkout overlay is identical for one-time and recurring
+# prices). Installing both gateways is fine — they use the same BEGIN/END
+# markers, so whichever you install second just confirms the shared pieces
+# are already in place rather than duplicating them.
 
 set -euo pipefail
 
-REPO_RAW="https://raw.githubusercontent.com/EWANZO101/Paddle-Subscription/main"
-TMP_DIR=$(mktemp -d)
-trap 'rm -rf "$TMP_DIR"' EXIT
+# Everything this script needs (Gateway.php, resources/, snippets/) lives
+# alongside it in the extracted package — resolved here so this still works
+# no matter where you extracted the zip to, or what you run it from.
+SCRIPT_DIR=$(cd "$(dirname "$(readlink -f "$0")")" && pwd)
 
 say() { printf '  - %s\n' "$1"; }
 die() { printf 'Error: %s\n' "$1" >&2; exit 1; }
+
+# Copies $src to $dst, skipping if they're already the same file (e.g. if
+# this script is being run from inside extensions/Gateways/PaddleSubscription
+# itself because a marketplace install already placed it there).
+copy_if_different() {
+    local src="$1" dst="$2"
+    if [ -e "$dst" ] && [ "$(readlink -f "$src")" = "$(readlink -f "$dst")" ]; then
+        return
+    fi
+    cp "$src" "$dst"
+}
 
 # Locates $anchor as a fixed (non-regex) string in $target and returns its
 # 1-based line number, or dies if not found.
@@ -106,27 +121,19 @@ remove_legacy_method() {
 [ -f "app/Http/Controllers/Client/PaymentsController.php" ] \
     || die "app/Http/Controllers/Client/PaymentsController.php not found — is this really a WemX v3 install?"
 
+[ -f "$SCRIPT_DIR/Gateway.php" ] \
+    || die "Gateway.php not found next to this script — make sure you extracted the full zip, not just install.sh."
+
 # Many WemX installs lock down extensions/, app/, routes/, etc. to root (or the
 # web server user), unwritable by a normal shell login — this check fails fast
 # with a clear fix instead of a confusing mid-script `mkdir: Permission denied`.
-# This also catches the single most common mistake with this installer:
-# `sudo curl ... | bash` only sudo's the curl half of the pipe — bash (which
-# does the actual writing) still runs as your normal user. Use
-# `curl ... | sudo bash` instead (sudo wrapping bash, not curl).
 if [ ! -w "." ] || { mkdir -p extensions/Gateways 2>/dev/null && [ ! -w "extensions/Gateways" ]; }; then
     cat >&2 <<'EOF'
 Error: this user can't write to this WemX installation.
 
-If you ran this as:
-    sudo curl -fsSL .../install.sh | bash
-...that only applies sudo to curl (the download) — bash (which does the
-actual writing) still runs as your normal user. Use this instead, with sudo
-wrapping bash rather than curl:
+Run this as whichever user owns the WemX install (or via sudo), e.g.:
 
-    curl -fsSL https://raw.githubusercontent.com/EWANZO101/Paddle-Subscription/main/install.sh | sudo bash
-
-Or su/sudo to whichever user owns this WemX install, then run the plain
-(non-sudo) one-liner as that user.
+    sudo bash /path/to/PaddleSubscription/install.sh
 EOF
     exit 1
 fi
@@ -135,7 +142,7 @@ echo "==> Installing Paddle Subscription gateway for WemX"
 
 # 1. Extension folder
 mkdir -p extensions/Gateways/PaddleSubscription
-curl -fsSL "$REPO_RAW/Gateway.php" -o extensions/Gateways/PaddleSubscription/Gateway.php
+copy_if_different "$SCRIPT_DIR/Gateway.php" extensions/Gateways/PaddleSubscription/Gateway.php
 say "extensions/Gateways/PaddleSubscription/Gateway.php"
 
 # 2. Checkout view — shared with the PaddleCheckout gateway (Paddle Billing's
@@ -149,7 +156,7 @@ if [ -f .env ]; then
 fi
 view_dir="resources/client_area/${THEME}/payments"
 mkdir -p "$view_dir"
-curl -fsSL "$REPO_RAW/resources/paddle-checkout.blade.php" -o "$view_dir/paddle-checkout.blade.php"
+copy_if_different "$SCRIPT_DIR/resources/paddle-checkout.blade.php" "$view_dir/paddle-checkout.blade.php"
 say "$view_dir/paddle-checkout.blade.php"
 
 # 3. Route — shared with PaddleCheckout, same markers — replaces its own
@@ -173,8 +180,7 @@ line_num=$(line_of "$routes_file" "$anchor")
 [ -n "$line_num" ] \
     || die "could not find the expected anchor line in routes/web.php — add the route manually, see INSTALL.md"
 
-curl -fsSL "$REPO_RAW/snippets/route.php" -o "$TMP_DIR/route.php"
-insert_after_line "$routes_file" "$TMP_DIR/route.php" "$line_num"
+insert_after_line "$routes_file" "$SCRIPT_DIR/snippets/route.php" "$line_num"
 say "route $([ "$already_had_route" -eq 1 ] && echo replaced || echo added) in routes/web.php (backup saved alongside it)"
 
 # 4. Controller method — shared with PaddleCheckout, same replace-on-rerun
@@ -198,24 +204,25 @@ line_num=$(line_of "$controller_file" "$anchor")
 [ -n "$line_num" ] \
     || die "could not find the expected anchor method in PaymentsController.php — add paddleCheckout() manually, see INSTALL.md"
 
-curl -fsSL "$REPO_RAW/snippets/paddleCheckout-method.php" -o "$TMP_DIR/method.php"
-insert_after_line "$controller_file" "$TMP_DIR/method.php" "$((line_num - 1))"
+insert_after_line "$controller_file" "$SCRIPT_DIR/snippets/paddleCheckout-method.php" "$((line_num - 1))"
 say "paddleCheckout() $([ "$already_had_method" -eq 1 ] && echo replaced || echo added) in PaymentsController.php (backup saved alongside it)"
 
 # Make sure the classes the new method needs are imported — additive only,
 # these never need replacing since they don't change between versions.
-: > "$TMP_DIR/imports.php"
+IMPORTS_TMP=$(mktemp)
+trap 'rm -f "$IMPORTS_TMP"' EXIT
+: > "$IMPORTS_TMP"
 for use_line in \
     'use App\Models\GatewayConfig;' \
     'use App\Models\Payment;' \
     'use App\Models\Subscription;' \
     'use Illuminate\Http\Request;'
 do
-    grep -qF "$use_line" "$controller_file" || printf '%s\n' "$use_line" >> "$TMP_DIR/imports.php"
+    grep -qF "$use_line" "$controller_file" || printf '%s\n' "$use_line" >> "$IMPORTS_TMP"
 done
-if [ -s "$TMP_DIR/imports.php" ]; then
+if [ -s "$IMPORTS_TMP" ]; then
     ns_line=$(line_of "$controller_file" "namespace App\\Http\\Controllers\\Client;")
-    insert_after_line "$controller_file" "$TMP_DIR/imports.php" "$ns_line"
+    insert_after_line "$controller_file" "$IMPORTS_TMP" "$ns_line"
 fi
 say "verified required 'use' imports in PaymentsController.php"
 
@@ -240,4 +247,4 @@ echo "   2. Fill in your Paddle API Key, Client-side Token, and Webhook Secret"
 echo "   3. Point a Paddle notification destination at the Webhook URL shown there, subscribed to the subscription.* events"
 echo "      (subscription.created, subscription.activated, subscription.updated, subscription.past_due,"
 echo "       subscription.paused, subscription.resumed, subscription.canceled)"
-echo "   See INSTALL.md for full details: https://github.com/EWANZO101/Paddle-Subscription/blob/main/INSTALL.md"
+echo "   See INSTALL.md (included in this zip) for full details."
